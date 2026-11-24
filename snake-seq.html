@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Collect RNA bases and see how long a read you can make in SNAKEseq.">
+<title>SNAKEseq</title>
+<style>
+:root{color-scheme:light;--ink:#211a34;--muted:#625873;--line:#e1d9eb;--paper:#f8f5fc;--purple:#5934ac;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;--a:#b8ed84;--c:#8edcff;--g:#ffd380;--u:#f6a7d0}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at 12% 4%,#ece3fa,transparent 50%),var(--paper);color:var(--ink);font:16px system-ui,sans-serif;min-height:100vh}
+main{width:min(1060px,calc(100% - 40px));margin:auto;padding:46px 0 32px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px}
+h1{font-family:var(--mono);font-size:clamp(2.8rem,8vw,5rem);font-weight:900;letter-spacing:-.11em;line-height:1;margin:0 0 8px}
+h1 span{color:var(--purple)}
+header p{color:var(--muted);margin:0}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:3px solid #8360db;outline-offset:3px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:18px;align-items:start}
+.machine{background:#110c1e;border:1px solid #352849;border-radius:20px;overflow:hidden;box-shadow:0 12px 25px #22123323}
+.machine-top,.machine-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;color:#d8cbe9;font:13px var(--mono)}
+.machine-top{border-bottom:1px solid #352849}
+.machine-foot{border-top:1px solid #352849}
+.indicator{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:#b99aea}
+[data-state="running"] .dot{background:#b8ed84;box-shadow:0 0 10px #b8ed8477}
+[data-state="over"] .dot{background:#f6a7d0}
+.playfield{position:relative;touch-action:none}
+canvas{display:block;width:100%;height:auto;aspect-ratio:4/3}
+.overlay{position:absolute;inset:0;display:grid;place-items:center;padding:12px;background:#100d1bc0;text-align:center;color:#f8f2ff}
+.overlay[hidden]{display:none}
+.overlay h2{font:800 clamp(1.45rem,4vw,2.75rem)/1.05 var(--mono);letter-spacing:-.065em;margin:0}
+.overlay p{max-width:32ch;margin:12px auto 19px;color:#dfd3ee}
+.primary{border:0;border-radius:9px;background:#cdb5ff;color:#22113b;font-weight:800;padding:11px 19px;min-height:44px}
+.primary:hover{background:#e1d2ff}
+.side{display:grid;gap:12px}
+.card{background:#fffaff;border:1px solid var(--line);border-radius:14px;padding:15px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.label{color:var(--muted);font:700 13px var(--mono);letter-spacing:.03em;text-transform:uppercase;margin:0}
+.value{display:block;font:800 27px var(--mono);margin-top:5px;white-space:nowrap}
+.unit{font-size:12px;color:var(--muted)}
+.readbar{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.read{display:flex;flex-wrap:wrap;align-content:start;gap:5px 8px;min-height:78px;max-height:118px;overflow:auto;margin-top:12px;font:700 15px var(--mono)}
+.empty{font:14px system-ui,sans-serif;color:var(--muted)}
+.codon{display:inline-flex;gap:2px;white-space:nowrap}
+.base{display:inline-grid;place-items:center;background:var(--base);color:#211a34;border-radius:4px;min-width:17px;height:22px}
+.base[data-base="A"]{--base:var(--a)}.base[data-base="C"]{--base:var(--c)}.base[data-base="G"]{--base:var(--g)}.base[data-base="U"]{--base:var(--u)}
+.action{border:1px solid var(--line);min-height:36px;border-radius:8px;background:#fffaff;color:var(--ink);padding:5px 9px;font-weight:650}
+.action:hover:not(:disabled){background:#eee4ff}
+.action:disabled{opacity:.42;cursor:default}
+.translation-hud .action{background:#241932;color:#f3ebfb;border-color:#483858}
+.translation-hud .action:hover:not(:disabled){background:#3a2951}
+.pad{
+  --key-size:clamp(44px,7dvh,54px);
+  display:none;justify-self:center;
+  grid-template-columns:repeat(3,var(--key-size));
+  grid-template-rows:repeat(3,var(--key-size));
+  gap:1px
+}
+.pad::before{content:"";grid-area:2/2;background:#4a3667}
+.pad button{
+  width:100%;height:100%;padding:0;touch-action:none;user-select:none;
+  border:0;border-radius:0;background:#38254f;color:#fff5ff;
+  font:800 1.25rem var(--mono);line-height:1
+}
+.pad button:hover:not(:disabled){background:#543a76}
+.pad button:active:hover:not(:disabled){background:#7652a4}
+.pad [data-dir="up"]{grid-area:1/2;border-radius:10px 10px 0 0}
+.pad [data-dir="left"]{grid-area:2/1;border-radius:10px 0 0 10px}
+.pad [data-dir="right"]{grid-area:2/3;border-radius:0 10px 10px 0}
+.pad [data-dir="down"]{grid-area:3/2;border-radius:0 0 10px 10px}
+kbd{font:inherit;color:#f5ecff}
+.translation-hud{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:5px 12px;align-items:center;padding:10px 16px;color:#f8f2ff;border-bottom:1px solid #352849;background:#211631}
+.phase,.bank-label{font:700 11px var(--mono);text-transform:uppercase;letter-spacing:.045em;color:#d6c4eb}
+.triplet{display:inline-flex;gap:4px;vertical-align:middle;margin-right:8px}
+.triplet .base,.slot{width:24px;height:24px;font:800 14px var(--mono)}
+.slot{display:inline-grid;place-items:center;border:1px dashed #86709f;border-radius:4px;color:#cbb7e3}
+.hint{font-size:.81rem;color:#e1d2f2}
+.bank{grid-column:2;grid-row:1/3;text-align:right}
+.translation-hud #pause{grid-column:3;grid-row:1/3;min-height:44px}
+.bank strong{display:block;font:800 24px var(--mono);color:#f0e3ff}
+.bank small{display:block;min-height:14px;color:#cdb6ef;font:11px var(--mono)}
+.callout{min-height:37px;padding:8px 16px;background:#2a1c3d;color:#f3e6ff;font:700 .84rem/1.35 var(--mono)}
+.callout[data-kind="start"]{color:#c9f6a9}.callout[data-kind="stop"]{color:#ffda93}
+.callout.flash{animation:flash .28s ease-out}
+@keyframes flash{from{background:#5b3b7e}to{background:#2a1c3d}}
+.peptide{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;max-height:100px;overflow:auto}
+.residue{display:inline-grid;place-items:center;min-width:34px;padding:4px 5px;border-radius:5px;background:#ece0fa;color:#482781;font:700 .8rem var(--mono)}
+#pending{display:block;margin-top:10px;color:var(--muted);font-size:.83rem}
+.archive-heading{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+#archive-empty{margin:7px 0 0}
+#archive{margin:10px 0 0;padding:0;list-style:none;max-height:120px;overflow:auto;color:var(--muted);font:.82rem var(--mono)}
+#archive li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+#archive code{color:var(--ink);font:800 .88rem var(--mono)}
+.readcard summary{cursor:pointer;margin:0 0 10px}.readcard:not([open]) summary{margin-bottom:0}
+.read .codon{display:inline-flex;flex-direction:column;align-items:center;gap:4px}
+.read .codon span:first-child{display:inline-flex;gap:2px}
+.read small{font:700 11px var(--mono);color:var(--muted)}
+.read .banked small{color:#875516}
+main{padding-bottom:max(26px,env(safe-area-inset-bottom))}
+#open-results,.phone-peptide{display:none}
+#results-sheet{width:min(420px,calc(100% - 24px));max-height:calc(100dvh - 24px);border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--paper);color:var(--ink);overscroll-behavior:contain}
+#results-sheet::backdrop{background:#171023b8}
+.sheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.sheet-head h2{margin:0;font-size:1rem}
+.sheet-head button{min-height:44px}
+.sheet-head form{margin:0}
+@media (pointer:coarse){.pad{display:grid;width:max-content;margin:6px auto 0}}
+@media (max-width:760px), (max-width:950px) and (max-height:600px), (pointer:coarse) and (max-height:600px){
+  html,body{height:100%;min-height:0;overflow:hidden;overscroll-behavior:none}
+  main{
+    display:grid;grid-template-rows:auto minmax(0,1fr);gap:6px;width:min(580px,100%);
+    height:100vh;height:100dvh;
+    padding:max(4px,env(safe-area-inset-top)) max(6px,env(safe-area-inset-right))
+      max(4px,env(safe-area-inset-bottom)) max(6px,env(safe-area-inset-left))
+  }
+  header{align-items:center;gap:8px;margin:0;padding-inline:2px}
+  h1{font-size:clamp(1.8rem,8vw,2.4rem);margin:0}
+  header p,.machine-top,.machine-foot,.phase,.layout > .side{display:none}
+  #open-results{display:inline-block;min-height:44px}
+  .layout{display:block;min-height:0}
+  .game{display:grid;grid-template-rows:minmax(0,1fr) auto auto;gap:5px;height:100%;min-height:0}
+  .machine{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-height:0;border-radius:12px}
+  .translation-hud{grid-template-rows:1fr;gap:5px;padding:4px 7px;min-height:54px}
+  .translation-hud #pause,.bank{grid-row:1}
+  .translation-hud #pause{padding-inline:5px;font-size:.82rem;min-width:58px}
+  .bank-label{font-size:9px}
+  .bank strong{font-size:19px}
+  .bank small{font-size:9px}
+  .triplet{margin-right:3px;gap:3px}
+  .triplet .base,.slot{width:21px;height:21px;font-size:13px}
+  .hint{font-size:.69rem;line-height:1.1;display:block;margin-top:2px}
+  .playfield{min-width:0;min-height:0}
+  canvas{width:100%;height:100%;aspect-ratio:auto;object-fit:contain}
+  .overlay p{margin:8px auto 12px;font-size:.88rem}
+  .callout{display:flex;align-items:center;min-height:38px;padding:3px 8px;font-size:.73rem}
+  .pad{display:grid;margin:0}
+  .phone-peptide{
+    display:flex;align-items:center;gap:6px;min-width:0;min-height:30px;
+    padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:#fffaff;color:var(--muted)
+  }
+  .phone-peptide .label{font-size:10px;white-space:nowrap}
+  .phone-peptide code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font:700 .8rem var(--mono)}
+}
+@media (orientation:portrait) and (max-width:760px) and (max-height:520px){
+  .game{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
+  .machine{grid-column:1/-1}
+  .pad{grid-column:2;grid-row:2}
+  .phone-peptide{grid-column:3;grid-row:2;align-self:center;align-items:flex-start;flex-direction:column;gap:3px;margin-left:4px}
+  .phone-peptide code{max-width:100%}
+  .overlay{padding:6px}
+  .overlay h2{font-size:1.2rem}
+  .overlay p{margin:6px auto 8px;font-size:.79rem}
+}
+@media(orientation:landscape) and (max-height:600px) and (max-width:950px),
+       (orientation:landscape) and (max-height:600px) and (pointer:coarse){
+  main{width:min(980px,100%)}
+  .game{grid-template-columns:minmax(0,1fr) minmax(204px,30%);grid-template-rows:auto minmax(134px,1fr) auto auto;gap:4px}
+  .machine{display:contents}
+  .playfield{grid-column:1;grid-row:1/5;overflow:hidden;border-radius:12px;background:#171023}
+  .translation-hud{grid-column:2;grid-row:1;border-radius:8px;min-height:49px;padding-block:2px}
+  .callout{grid-column:2;grid-row:3;border-radius:8px;min-height:30px;font-size:.69rem;line-height:1.15}
+  .pad{--key-size:44px;grid-column:2;grid-row:2;align-self:center}
+  .phone-peptide{grid-column:2;grid-row:4;min-height:22px;padding-block:2px}
+  .overlay{padding:4px}
+  .overlay h2{font-size:1.15rem}
+  .overlay p{margin:4px auto 6px;font-size:.75rem;max-width:44ch}
+  .overlay .primary{padding:4px 12px}
+}
+@media(prefers-reduced-motion:reduce){.callout.flash{animation:none}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>SNAKE<span>seq</span></h1><p>Collect RNA bases. Translate codons. Bank peptides.</p></div>
+    <button class="action" id="open-results" type="button" aria-haspopup="dialog">Results</button>
+  </header>
+  <div class="layout">
+    <section class="game" aria-label="Game">
+      <div class="machine" id="machine" data-state="ready">
+        <div class="machine-top"><span>RNA SEQUENCER</span><span class="indicator" id="status" role="status"><span class="dot"></span><span id="status-text">Ready</span></span></div>
+        <div class="translation-hud">
+          <span class="phase">Next codon</span>
+          <div><span class="triplet" id="triplet" aria-label="Current codon"></span><span class="hint" id="hint"></span></div>
+          <div class="bank"><span class="bank-label">Banked</span><strong id="score">0</strong><small id="at-stake"></small></div>
+          <button class="action" id="pause" type="button" disabled>Pause</button>
+        </div>
+        <div class="playfield" id="playfield">
+          <canvas id="board" width="768" height="576" aria-label="Snake game board"></canvas>
+          <div class="overlay" id="overlay">
+            <div><h2 id="message">Ready to sequence?</h2><p id="detail">Start with AUG. Collect a stop codon to bank your peptide.</p><button class="primary" id="play" type="button">Start sequencing</button></div>
+          </div>
+        </div>
+        <div class="callout" id="callout" role="status">AUG → Methionine (M) · Ready to translate.</div>
+        <div class="machine-foot"><span class="keyboard-help"><kbd>Arrow keys</kbd> / <kbd>WASD</kbd> · <kbd>Space</kbd> to pause</span></div>
+      </div>
+      <div class="pad" aria-label="Touch controls">
+        <button class="action" data-dir="up" type="button" aria-label="Move up">↑</button>
+        <button class="action" data-dir="left" type="button" aria-label="Move left">←</button>
+        <button class="action" data-dir="right" type="button" aria-label="Move right">→</button>
+        <button class="action" data-dir="down" type="button" aria-label="Move down">↓</button>
+      </div>
+      <div class="phone-peptide"><span class="label">Last banked</span><code id="latest-peptide">None yet</code></div>
+    </section>
+    <aside id="results" class="side" aria-label="Sequencing results">
+      <div class="card stats">
+        <div><p class="label">Bases collected</p><strong class="value"><span id="length">0</span> <span class="unit">nt</span></strong></div>
+        <div><p class="label">Best</p><strong class="value"><span id="best">0</span> <span class="unit">nt</span></strong></div>
+      </div>
+      <section class="card peptide-card" aria-label="Peptide results">
+        <h2 class="label">Growing peptide</h2>
+        <div class="peptide" id="peptide"></div>
+        <span id="pending"></span>
+        <h3 class="label archive-heading">Banked peptides</h3>
+        <p class="empty" id="archive-empty">Collect UAA, UAG, or UGA to bank one.</p>
+        <ol id="archive" aria-label="Banked peptides" hidden></ol>
+      </section>
+      <details class="card readcard">
+        <summary class="label">Full RNA read</summary>
+        <div class="readbar"><h2 class="label">RNA read · 5′ to 3′</h2><button class="action" id="copy" type="button" disabled>Copy</button></div>
+        <div class="read" id="read" tabindex="0" aria-label="Collected RNA sequence"><span class="empty">Waiting for the first base.</span></div>
+      </details>
+    </aside>
+  </div>
+  <dialog id="results-sheet" aria-labelledby="results-title">
+    <div class="sheet-head">
+      <h2 id="results-title">Run results</h2>
+      <form method="dialog"><button class="action" type="submit" autofocus>Close</button></form>
+    </div>
+  </dialog>
+</main>
+<script>
+'use strict';
+const byId = id => document.getElementById(id);
+const canvas = byId('board');
+const ctx = canvas.getContext('2d');
+const compact = matchMedia('(max-width: 760px), (max-width: 950px) and (max-height: 600px), (pointer: coarse) and (max-height: 600px)');
+const portrait = matchMedia('(max-width: 760px) and (orientation: portrait)');
+const touch = matchMedia('(pointer: coarse)');
+let cols;
+let rows;
+const cell = 32;
+const bases = {A: '#b8ed84', C: '#8edcff', G: '#ffd380', U: '#f6a7d0'};
+const vectors = {left: [-1, 0], up: [0, -1], down: [0, 1], right: [1, 0]};
+const keys = {arrowleft: 'left', arrowup: 'up', arrowdown: 'down', arrowright: 'right', a: 'left', w: 'up', s: 'down', d: 'right'};
+const storageKey = 'snake-seq.best.v1';
+const aminoAcids = {
+  A: 'Alanine', C: 'Cysteine', D: 'Aspartate', E: 'Glutamate', F: 'Phenylalanine',
+  G: 'Glycine', H: 'Histidine', I: 'Isoleucine', K: 'Lysine', L: 'Leucine',
+  M: 'Methionine', N: 'Asparagine', P: 'Proline', Q: 'Glutamine', R: 'Arginine',
+  S: 'Serine', T: 'Threonine', V: 'Valine', W: 'Tryptophan', Y: 'Tyrosine'
+};
+// Standard genetic code, in U-C-A-G order at each position.
+const baseOrder = 'UCAG';
+const geneticCode = 'FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG';
+const startCodon = 'AUG';
+const stops = ['UAA', 'UAG', 'UGA'];
+const read = byId('read');
+const copy = byId('copy');
+const pause = byId('pause');
+const play = byId('play');
+const field = byId('playfield');
+const results = byId('results');
+const resultsHome = results.parentElement;
+const resultsSheet = byId('results-sheet');
+const overlays = {
+  ready: ['Ready', 'Ready to sequence?', 'Start with AUG. Collect a stop codon to bank your peptide.', 'Start sequencing'],
+  running: ['Sequencing'],
+  paused: ['Paused', 'Sequencer paused', 'Your read is still here.', 'Resume'],
+  over: ['Run ended', 'Read terminated', '', 'Run again'],
+  won: ['Complete', 'Flow cell full', '', 'Run again']
+};
+let snake, food, sequence, direction, turns, state, timer, pointerStart;
+let triplet, peptide, points, bankedCount, collected;
+
+function decode(codon) {
+  const [a, b, c] = Array.from(codon, base => baseOrder.indexOf(base));
+  return geneticCode[a * 16 + b * 4 + c];
+}
+
+function baseTile(base) {
+  const tile = document.createElement('span');
+  tile.className = base ? 'base' : 'slot';
+  if (base) tile.dataset.base = base;
+  tile.textContent = base || '·';
+  return tile;
+}
+
+function announce(message, kind = '') {
+  const callout = byId('callout');
+  callout.textContent = message;
+  callout.dataset.kind = kind;
+  callout.classList.remove('flash');
+  requestAnimationFrame(() => callout.classList.add('flash'));
+}
+
+function guideBases() {
+  return [...new Set(stops.filter(codon => codon.startsWith(triplet)).map(codon => codon[triplet.length]))];
+}
+
+function peptideValue() {
+  return peptide.length * (peptide.length + 1) / 2;
+}
+
+function updateTranslation() {
+  const next = guideBases();
+  byId('triplet').replaceChildren(...Array.from({length: 3}, (_, i) => baseTile(triplet[i])));
+  byId('hint').textContent = next.length
+    ? 'Pick up ' + next.join(' or ') + ' to build a stop'
+    : 'UAA / UAG / UGA bank points';
+  byId('score').textContent = points;
+  byId('at-stake').textContent = '+' + peptideValue() + ' pending';
+  byId('pending').textContent = peptide.length + ' aa · ' + formatPoints(peptideValue()) + ' if you stop';
+}
+
+function formatPoints(value) {
+  return value + (value === 1 ? ' pt' : ' pts');
+}
+
+function labelCodon(group, residue, isStart = false) {
+  const caption = document.createElement('small');
+  caption.textContent = isStart ? 'Start · ' + residue : residue === '*' ? 'Stop' : residue;
+  caption.title = residue === '*' ? 'Stop codon' : aminoAcids[residue];
+  group.append(caption);
+}
+
+function addResidue(residue) {
+  peptide.push(residue);
+  const chip = document.createElement('span');
+  chip.className = 'residue';
+  chip.textContent = aminoAcids[residue].slice(0, 3);
+  chip.title = aminoAcids[residue];
+  chip.setAttribute('aria-label', aminoAcids[residue]);
+  const strip = byId('peptide');
+  strip.append(chip);
+  strip.scrollTop = strip.scrollHeight;
+}
+
+function completeCodon(codon, group) {
+  const residue = decode(codon);
+  labelCodon(group, residue);
+  if (residue !== '*') {
+    addResidue(residue);
+    announce(codon + ' → ' + aminoAcids[residue] + ' (' + residue + ') · Added to peptide.');
+    return false;
+  }
+  const earned = peptideValue();
+  points += earned;
+  bankedCount++;
+  const archive = byId('archive');
+  const entry = document.createElement('li');
+  const chain = document.createElement('code');
+  chain.textContent = peptide.join('');
+  byId('latest-peptide').textContent = chain.textContent;
+  const score = document.createElement('span');
+  score.textContent = '+' + formatPoints(earned);
+  entry.append(chain, score);
+  archive.prepend(entry);
+  archive.hidden = false;
+  byId('archive-empty').hidden = true;
+  archive.scrollTop = 0;
+  group.classList.add('banked');
+  startPeptide();
+  announce(codon + ' → STOP · +' + formatPoints(earned) + ' banked. Fresh AUG ready.', 'stop');
+  return true;
+}
+let best = 0;
+try { best = Number(localStorage.getItem(storageKey)) || 0; } catch {}
+byId('best').textContent = best;
+
+function setState(next, detail) {
+  state = next;
+  const [status, title, description, button] = overlays[next];
+  byId('machine').dataset.state = next === 'won' ? 'over' : next;
+  byId('status-text').textContent = status;
+  byId('overlay').hidden = next === 'running';
+  if (title) {
+    byId('message').textContent = title;
+    byId('detail').textContent = detail ?? description;
+    play.textContent = button;
+  }
+  pause.disabled = next !== 'running' && next !== 'paused';
+  pause.textContent = next === 'paused' ? 'Resume' : 'Pause';
+}
+
+const cellId = ({x, y}) => y * cols + x;
+
+function replenish() {
+  const occupied = new Set([...snake, ...food].map(cellId));
+  for (const base of Object.keys(bases)) {
+    if (food.some(item => item.base === base)) continue;
+    const free = [];
+    for (let i = 0; i < cols * rows; i++) {
+      if (!occupied.has(i)) free.push(i);
+    }
+    if (!free.length) return;
+    const index = free[Math.floor(Math.random() * free.length)];
+    food.push({x: index % cols, y: Math.floor(index / cols), base});
+    occupied.add(index);
+  }
+}
+
+function startPeptide() {
+  const x = cols === 20 ? 4 : 6;
+  const y = Math.floor(rows / 2);
+  snake = Array.from(startCodon, (_, i) => ({x: x - i, y}));
+  direction = 'right';
+  turns = [];
+  pointerStart = null;
+  triplet = '';
+  peptide = [];
+  food = [];
+  replenish();
+  byId('peptide').replaceChildren();
+  const group = newCodonGroup();
+  for (const base of startCodon) group.firstElementChild.append(baseTile(base));
+  sequence += startCodon;
+  const residue = decode(startCodon);
+  labelCodon(group, residue, true);
+  addResidue(residue);
+}
+
+function reset() {
+  cols = portrait.matches ? 20 : 24;
+  const visibleRatio = field.clientHeight / field.clientWidth;
+  rows = compact.matches && Number.isFinite(visibleRatio) && visibleRatio > 0
+    ? Math.max(10, Math.min(28, Math.round(cols * visibleRatio)))
+    : 18;
+  canvas.width = cols * cell;
+  canvas.height = rows * cell;
+  sequence = '';
+  collected = 0;
+  points = 0;
+  bankedCount = 0;
+  byId('archive').replaceChildren();
+  byId('archive').hidden = true;
+  byId('archive-empty').hidden = false;
+  byId('latest-peptide').textContent = 'None yet';
+  read.replaceChildren();
+  copy.disabled = false;
+  copy.textContent = 'Copy';
+  byId('length').textContent = '0';
+  startPeptide();
+  announce('AUG → Methionine (M) · Ribosome online.', 'start');
+  updateTranslation();
+  draw();
+}
+
+function block(x, y, size, radius, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.roundRect(x, y, size, size, radius);
+  ctx.fill();
+}
+
+function draw() {
+  ctx.fillStyle = '#171023';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#382c48';
+  for (let x = 0; x < cols; x++) {
+    for (let y = 0; y < rows; y++) ctx.fillRect(x * cell + 15, y * cell + 15, 2, 2);
+  }
+  ctx.font = 'bold 17px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const guided = guideBases();
+  for (const {x, y, base} of food) {
+    if (guided.includes(base)) block(x * cell + 1, y * cell + 1, 30, 8, '#fff2c1');
+    block(x * cell + 4, y * cell + 4, 24, 6, bases[base]);
+    ctx.fillStyle = '#231830';
+    ctx.fillText(base, x * cell + 16, y * cell + 16);
+  }
+  ctx.lineWidth = 13;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#7957bb';
+  ctx.beginPath();
+  snake.forEach(({x, y}, i) => {
+    if (i === 0) ctx.moveTo(x * cell + 16, y * cell + 16);
+    else ctx.lineTo(x * cell + 16, y * cell + 16);
+  });
+  ctx.stroke();
+  const letters = sequence.slice(-snake.length);
+  snake.forEach(({x, y}, i) => {
+    const base = letters[i];
+    block(x * cell + 3, y * cell + 3, 26, 7, bases[base]);
+    ctx.fillStyle = '#231830';
+    ctx.font = i === 0 ? 'bold 13px monospace' : 'bold 15px monospace';
+    const [dx, dy] = i === 0 ? vectors[direction] : [0, 0];
+    ctx.fillText(base, x * cell + 16 - dx * 4, y * cell + 16 - dy * 4);
+  });
+  const [dx, dy] = vectors[direction];
+  const x = snake[0].x * cell + 16 + dx * 7;
+  const y = snake[0].y * cell + 16 + dy * 7;
+  block(x - dy * 5 - 2, y - dx * 5 - 2, 4, 1, '#27183e');
+  block(x + dy * 5 - 2, y + dx * 5 - 2, 4, 1, '#27183e');
+}
+
+function newCodonGroup() {
+  const group = document.createElement('span');
+  group.className = 'codon';
+  group.append(document.createElement('span'));
+  read.append(group);
+  return group;
+}
+
+function addBase(base) {
+  const group = triplet.length ? read.lastElementChild : newCodonGroup();
+  sequence += base;
+  triplet += base;
+  collected++;
+  group.firstElementChild.append(baseTile(base));
+  let banked = false;
+  if (triplet.length === 3) {
+    const codon = triplet;
+    triplet = '';
+    banked = completeCodon(codon, group);
+  }
+  updateTranslation();
+  read.scrollTop = read.scrollHeight;
+  byId('length').textContent = collected;
+  if (collected > best) {
+    best = collected;
+    byId('best').textContent = best;
+    try { localStorage.setItem(storageKey, String(best)); } catch {}
+  }
+  return banked;
+}
+
+function schedule(freshStart = false) {
+  clearTimeout(timer);
+  const initialDelay = touch.matches || compact.matches ? 245 : 190;
+  const delay = Math.max(85, initialDelay - (snake.length - startCodon.length) * 2);
+  timer = setTimeout(step, freshStart ? 525 : delay);
+}
+
+function step() {
+  if (state !== 'running') return;
+  direction = turns.shift() ?? direction;
+  const [dx, dy] = vectors[direction];
+  const head = {x: snake[0].x + dx, y: snake[0].y + dy};
+  const sameCell = ({x, y}) => x === head.x && y === head.y;
+  const pickup = food.findIndex(sameCell);
+  const body = pickup < 0 ? snake.slice(0, -1) : snake;
+  const wall = head.x < 0 || head.x >= cols || head.y < 0 || head.y >= rows;
+  if (wall || body.some(sameCell)) {
+    const reason = wall ? 'Hit the flow-cell wall.' : 'The read folded back on itself.';
+    setState('over', reason + ' ' + bankedCount + (bankedCount === 1 ? ' peptide' : ' peptides') +
+      ' banked for ' + formatPoints(points) + '. Unfinished peptide lost.');
+    return;
+  }
+  snake.unshift(head);
+  let banked = false;
+  if (pickup < 0) {
+    snake.pop();
+  } else {
+    const [item] = food.splice(pickup, 1);
+    banked = addBase(item.base);
+    if (!banked) replenish();
+  }
+  draw();
+  if (snake.length === cols * rows) {
+    setState('won', collected + ' bases collected · ' + formatPoints(points) + ' banked.');
+    return;
+  }
+  schedule(banked);
+}
+
+function run() {
+  const freshStart = state !== 'paused';
+  if (freshStart) reset();
+  setState('running');
+  schedule(freshStart);
+}
+
+function togglePause() {
+  if (state === 'running') {
+    clearTimeout(timer);
+    turns = [];
+    setState('paused');
+  } else if (state === 'paused') {
+    run();
+  }
+}
+
+function steer(next) {
+  if (state !== 'running' || turns.length === 2) return;
+  const [dx, dy] = vectors[turns.at(-1) ?? direction];
+  const [nextX, nextY] = vectors[next];
+  if (dx * nextX + dy * nextY === 0) turns.push(next);
+}
+
+play.addEventListener('click', run);
+pause.addEventListener('click', togglePause);
+byId('open-results').addEventListener('click', () => {
+  if (state === 'running') togglePause();
+  resultsSheet.append(results);
+  resultsSheet.showModal();
+});
+resultsSheet.addEventListener('close', () => {
+  resultsHome.append(results);
+});
+document.querySelectorAll('[data-dir]').forEach(button => {
+  button.addEventListener('pointerdown', event => {
+    if (event.isPrimary && event.pointerType !== 'mouse') steer(button.dataset.dir);
+  });
+  button.addEventListener('click', event => {
+    if (event.detail === 0 || !event.pointerType || event.pointerType === 'mouse') steer(button.dataset.dir);
+  });
+});
+document.addEventListener('keydown', event => {
+  if (resultsSheet.open || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
+  const next = keys[event.key.toLowerCase()];
+  if (next && state === 'running') {
+    event.preventDefault();
+    if (!event.repeat) steer(next);
+  } else if (event.code === 'Space' && !event.target.closest('button')) {
+    event.preventDefault();
+    if (event.repeat) return;
+    if (state === 'running' || state === 'paused') togglePause();
+    else run();
+  }
+});
+field.addEventListener('pointerdown', event => {
+  if (!event.isPrimary || event.pointerType === 'mouse' || state !== 'running') return;
+  field.setPointerCapture(event.pointerId);
+  pointerStart = {id: event.pointerId, x: event.clientX, y: event.clientY};
+});
+function handleSwipe(event) {
+  if (pointerStart?.id !== event.pointerId) return;
+  const dx = event.clientX - pointerStart.x;
+  const dy = event.clientY - pointerStart.y;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 13) return;
+  pointerStart = null;
+  steer(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+}
+field.addEventListener('pointermove', handleSwipe);
+field.addEventListener('pointerup', event => {
+  handleSwipe(event);
+  pointerStart = null;
+});
+field.addEventListener('pointercancel', () => { pointerStart = null; });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state === 'running') togglePause();
+});
+copy.addEventListener('click', async () => {
+  const snapshot = sequence;
+  try {
+    await navigator.clipboard.writeText(snapshot);
+    if (sequence === snapshot) copy.textContent = 'Copied';
+  } catch {
+    const buffer = document.createElement('textarea');
+    buffer.value = snapshot;
+    buffer.style.position = 'fixed';
+    buffer.style.opacity = '0';
+    document.body.append(buffer);
+    buffer.select();
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch {}
+    buffer.remove();
+    if (copied) copy.textContent = 'Copied';
+    else window.prompt('Copy the RNA sequence', snapshot);
+  }
+});
+copy.addEventListener('blur', () => { copy.textContent = 'Copy'; });
+
+reset();
+setState('ready');
+</script>
+</body>
+</html>
